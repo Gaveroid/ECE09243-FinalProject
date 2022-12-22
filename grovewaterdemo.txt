@@ -1,0 +1,84 @@
+//Grove water sensor
+//https://dev.ti.com/tirex/explore/node?devices=MSP430FR2355&node=A__AMv-WqwYYlny2JcSyNy-DA__msp430ware__IOGqZri__LATEST&search=adc
+
+//Input: 'SIG (#4)' Pin 1.1 (configure in)
+//Send ADC Analog Output (ADCMEM0) to 1.7
+//Output: RXI (pin 1.7)
+
+#include <msp430.h>
+
+unsigned int ADC_Result;
+
+int main(void)
+{
+    WDTCTL = WDTPW | WDTHOLD;                                 // Stop WDT
+
+    // Configure GPIO
+    P1DIR |= BIT7;                                            // Set P1.7 to output direction
+    P1OUT &= ~BIT7;                                           // P1.7 off
+
+    // Configure ADC A1 pin
+    P1SEL0 |= BIT1;
+    P1SEL1 |= BIT1;
+
+    // Disable the GPIO power-on default high-impedance mode to activate
+    // previously configured port settings
+    PM5CTL0 &= ~LOCKLPM5;
+
+    // Configure ADC10
+    ADCCTL0 |= ADCSHT_2 | ADCON;                              // ADCON, S&H=16 ADC clks
+    ADCCTL1 |= ADCSHP;                                        // ADCCLK = MODOSC; sampling timer
+    ADCCTL2 &= ~ADCRES;                                       // clear ADCRES in ADCCTL
+    ADCCTL2 |= ADCRES_2;                                      // 12-bit conversion results
+    ADCIE |= ADCIE0;                                          // Enable ADC conv complete interrupt
+    ADCMCTL0 |= ADCINCH_1 | ADCSREF_1;                        // A1 ADC input select; Vref=1.5V
+
+    // Configure reference module
+    PMMCTL0_H = PMMPW_H;                                      // Unlock the PMM registers
+    PMMCTL2 = INTREFEN | REFVSEL_0;                           // Enable internal 1.5V reference
+    while(!(PMMCTL2 & REFGENRDY));                            // Poll till internal reference settles
+
+    while(1)
+    {
+        ADCCTL0 |= ADCENC | ADCSC;                            // Sampling and conversion start
+        __bis_SR_register(LPM0_bits | GIE);                   // LPM0, ADC_ISR will force exit
+        if (ADC_Result < 0x4000)                              // Arbitrary value; lower to increase threshold 
+            P1OUT |= BIT7;                            	      // Clear P1.7
+        else
+            P1OUT &= ~BIT7;                                   // Set P1.7 on
+        __delay_cycles(5000);
+    }
+}
+
+// ADC interrupt service routine
+#if defined(__TI_COMPILER_VERSION__) || defined(__IAR_SYSTEMS_ICC__)
+#pragma vector=ADC_VECTOR
+__interrupt void ADC_ISR(void)
+#elif defined(__GNUC__)
+void __attribute__ ((interrupt(ADC_VECTOR))) ADC_ISR (void)
+#else
+#error Compiler not supported!
+#endif
+{
+    switch(__even_in_range(ADCIV,ADCIV_ADCIFG))
+    {
+        case ADCIV_NONE:
+            break;
+        case ADCIV_ADCOVIFG:
+            break;
+        case ADCIV_ADCTOVIFG:
+            break;
+        case ADCIV_ADCHIIFG:
+            break;
+        case ADCIV_ADCLOIFG:
+            break;
+        case ADCIV_ADCINIFG:
+            break;
+        case ADCIV_ADCIFG:
+            ADC_Result = ADCMEM0;				// Watch ADC_Result for output!
+            __bic_SR_register_on_exit(LPM0_bits);              	// Clear CPUOFF bit from LPM0
+            break;
+        default:
+            break;
+    }
+}
